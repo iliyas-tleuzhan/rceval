@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rceval"
+version = "0.1.0"
+description = "Offline robot instruction benchmark, robot command benchmark, and deterministic safety judge."
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+authors = [{ name = "Iliyas Tleuzhan" }]
+dependencies = [
+  "pydantic>=2.6,<3",
+  "typer>=0.12,<1",
+  "rich>=13,<15",
+  "PyYAML>=6,<7",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8,<9",
+  "ruff>=0.6,<1",
+]
+
+[project.scripts]
+rceval = "rceval.cli:app"
+
+[tool.setuptools.packages.find]
+include = ["rceval*"]
+
+[tool.ruff]
+line-length = 180
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+ignore = ["B008"]
