@@ -36,7 +36,8 @@ def convert_rgen_record(record: dict, index: int = 1) -> BenchmarkCase:
                 "requires_clarification": metadata.get("requires_clarification", False),
                 "clarification_question": metadata.get("clarification_question"),
                 "is_solvable": metadata.get("is_solvable", True),
-                "failure_mode": metadata.get("failure_mode"),
+                "failure_mode": metadata.get("failure_mode")
+                or ("RGen record is marked unsolvable." if decision == "reject" else None),
                 "tags": metadata.get("tags", ["rgen_import"]),
             },
         }
@@ -54,4 +55,3 @@ def _default_robot() -> dict:
         "gripper": True,
         "max_speed": 0.35,
     }
-

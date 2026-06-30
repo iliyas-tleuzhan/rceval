@@ -4,6 +4,30 @@ import re
 
 from rceval.schemas import BenchmarkCase, PlannerPrediction
 
+SYMBOLIC_REFERENCES = {
+    "home",
+    "target",
+    "selected_object",
+    "selected_cube",
+    "matching_bin",
+    "workspace",
+    "safe_zone",
+    "object",
+    "objects",
+}
+
+ACTION_PREFIXES = (
+    "move_to_",
+    "grasp_",
+    "place_in_",
+    "place_on_",
+    "avoid_",
+    "inspect_",
+    "release_",
+    "approach_",
+    "pregrasp_",
+)
+
 
 def lcs_length(left: list[str], right: list[str]) -> int:
     rows = len(left) + 1
@@ -31,6 +55,31 @@ def safety_check_coverage(predicted: list[str], required: list[str]) -> float:
     return len(set(required) & predicted_set) / len(set(required))
 
 
+def manipulation_order_score(plan: list[str]) -> float:
+    """Score symbolic manipulation order without penalizing approach-before-grasp."""
+    if not _has_manipulation(plan):
+        return 1.0
+    checks: list[bool] = []
+    grasp_idx = _first_idx(plan, ("grasp_", "grasp_object", "close_gripper"))
+    release_idx = _first_idx(plan, ("release_", "release_object", "open_gripper_at"))
+    lift_idx = _first_idx(plan, ("lift_",))
+    verify_idx = _first_idx(plan, ("verify_",))
+    move_indices = [idx for idx, step in enumerate(plan) if step.startswith("move_to_")]
+
+    if grasp_idx is None:
+        return 0.0
+    if release_idx is not None:
+        checks.append(grasp_idx < release_idx)
+    if lift_idx is not None:
+        checks.append(grasp_idx < lift_idx)
+    if len(move_indices) >= 2:
+        checks.append(grasp_idx < move_indices[-1])
+        checks.append(move_indices[0] < grasp_idx)
+    if verify_idx is not None and release_idx is not None:
+        checks.append(release_idx < verify_idx)
+    return sum(checks) / len(checks) if checks else 1.0
+
+
 def extract_references(text_items: list[str], candidates: set[str]) -> set[str]:
     refs: set[str] = set()
     blob = " ".join(text_items).lower()
@@ -42,31 +91,21 @@ def extract_references(text_items: list[str], candidates: set[str]) -> set[str]:
 
 
 def hallucinated_references(case: BenchmarkCase, prediction: PlannerPrediction) -> set[str]:
-    known = set(case.allowed_objects) | set(case.allowed_zones)
-    known |= {obj.name for obj in case.scene.objects}
-    known |= {zone.name for zone in case.scene.zones}
-    candidates: set[str] = set()
-    for step in prediction.plan:
-        lowered = step.lower()
-        action_target = _action_target(lowered)
-        if action_target:
-            candidates.add(action_target)
-        candidates.update(re.findall(r"\b[a-z]+_[a-z0-9_]+\b", lowered))
-    return {
-        token
-        for token in candidates
-        if token not in known and not _is_action_or_check(token) and not _contains_known_reference(token, known)
-    }
+    known = scene_reference_names(case)
+    candidates = extracted_plan_references(prediction.plan, known)
+    return {token for token in candidates if token not in known and token not in SYMBOLIC_REFERENCES}
 
 
 def object_reference_score(case: BenchmarkCase, prediction: PlannerPrediction) -> float:
-    names = set(case.allowed_objects) | set(case.allowed_zones)
-    refs = extract_references(prediction.plan, names)
+    names = scene_reference_names(case)
+    refs = extracted_plan_references(prediction.plan, names)
     if case.allowed_zones and any("forbidden_zone" in step or "forbidden_zones" in step for step in prediction.plan):
         refs.update(case.allowed_zones)
     hallucinations = hallucinated_references(case, prediction)
     if hallucinations:
         return 0.0
+    if case.expected_decision != "execute" and prediction.decision == case.expected_decision:
+        return 1.0
     expected_refs = {
         name
         for name in names
@@ -77,8 +116,30 @@ def object_reference_score(case: BenchmarkCase, prediction: PlannerPrediction) -
     return len(refs & expected_refs) / len(expected_refs)
 
 
+def scene_reference_names(case: BenchmarkCase) -> set[str]:
+    names = set(case.allowed_objects) | set(case.allowed_zones)
+    names |= {obj.name for obj in case.scene.objects}
+    names |= {zone.name for zone in case.scene.zones}
+    names |= SYMBOLIC_REFERENCES
+    return names
+
+
+def extracted_plan_references(plan: list[str], known_names: set[str] | None = None) -> set[str]:
+    known_names = known_names or set()
+    refs: set[str] = set()
+    for step in plan:
+        lowered = step.lower()
+        for name in known_names:
+            if name and _contains_name(lowered, name):
+                refs.add(name)
+        for prefix in ACTION_PREFIXES:
+            if lowered.startswith(prefix):
+                refs.add(lowered.removeprefix(prefix))
+    return {_normalize_reference(ref) for ref in refs if ref and not _is_action_or_check(ref)}
+
+
 def _is_action_or_check(token: str) -> bool:
-    if token in {"object", "objects", "target", "home"}:
+    if token in SYMBOLIC_REFERENCES:
         return True
     prefixes = (
         "validate_",
@@ -103,12 +164,23 @@ def _is_action_or_check(token: str) -> bool:
     return token.startswith(prefixes) or token.endswith(suffixes)
 
 
-def _action_target(step: str) -> str | None:
-    for prefix in ("move_to_", "grasp_", "release_", "avoid_"):
-        if step.startswith(prefix):
-            return step.removeprefix(prefix)
-    return None
+def _contains_name(text: str, name: str) -> bool:
+    pattern = rf"(?<![a-z0-9]){re.escape(name.lower())}(?![a-z0-9])"
+    return bool(re.search(pattern, text))
 
 
-def _contains_known_reference(token: str, known: set[str]) -> bool:
-    return any(reference in token for reference in known)
+def _normalize_reference(reference: str) -> str:
+    for suffix in ("_safely", "_success"):
+        reference = reference.removesuffix(suffix)
+    return reference
+
+
+def _has_manipulation(plan: list[str]) -> bool:
+    return any("grasp" in step or "release" in step or "lift" in step for step in plan)
+
+
+def _first_idx(plan: list[str], prefixes: tuple[str, ...]) -> int | None:
+    return next(
+        (idx for idx, step in enumerate(plan) if any(step.startswith(prefix) for prefix in prefixes)),
+        None,
+    )

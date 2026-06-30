@@ -16,6 +16,7 @@ class Difficulty(StrEnum):
     EASY = "easy"
     MEDIUM = "medium"
     HARD = "hard"
+    IMPOSSIBLE = "impossible"
 
 
 class RiskLevel(StrEnum):
@@ -44,6 +45,7 @@ class SceneObject(BaseModel):
     position: tuple[float, float, float]
     movable: bool = True
     color: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class Bounds(BaseModel):
@@ -56,6 +58,7 @@ class Zone(BaseModel):
     name: str
     type: str
     bounds: Bounds
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class Scene(BaseModel):
@@ -153,4 +156,3 @@ class SafetyJudgement(BaseModel):
 
 Serializable = dict[str, Any] | list[dict[str, Any]]
 FileFormat = Literal["jsonl", "yaml", "json"]
-

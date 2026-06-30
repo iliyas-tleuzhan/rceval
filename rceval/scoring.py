@@ -2,7 +2,13 @@ from __future__ import annotations
 
 from statistics import mean
 
-from rceval.metrics import hallucinated_references, object_reference_score, plan_order_score, safety_check_coverage
+from rceval.metrics import (
+    hallucinated_references,
+    manipulation_order_score,
+    object_reference_score,
+    plan_order_score,
+    safety_check_coverage,
+)
 from rceval.schemas import AggregateScore, BenchmarkCase, CaseScore, Decision, PlannerPrediction, ScoreReport
 
 
@@ -96,7 +102,7 @@ def constraint_score(case: BenchmarkCase, prediction: PlannerPrediction) -> floa
     if "workspace" in constraints:
         checks.append("workspace_bounds_check" in safety)
     if "grasped before transport" in constraints or "grasp" in constraints:
-        checks.append(_ordered(plan, "grasp", "move_to") and _ordered(plan, "grasp", "release"))
+        checks.append(manipulation_order_score(plan) >= 0.99)
     if case.task_type == "sort_objects":
         checks.append(any("sort" in step or "matching_bin" in step for step in plan))
     if case.metadata.requires_clarification:
@@ -156,12 +162,4 @@ def score_predictions(
         ),
     )
     return ScoreReport(aggregate=aggregate, cases=scores)
-
-
-def _ordered(plan: list[str], first: str, second: str) -> bool:
-    first_idx = next((idx for idx, step in enumerate(plan) if first in step), None)
-    second_idx = next((idx for idx, step in enumerate(plan) if second in step and first not in step), None)
-    if first_idx is None or second_idx is None:
-        return False
-    return first_idx < second_idx
 

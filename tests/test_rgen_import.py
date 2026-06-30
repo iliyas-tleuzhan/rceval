@@ -36,3 +36,28 @@ def test_rgen_import_works_on_fixture(tmp_path: Path):
     write_records(out, cases)
     assert read_cases(out)[0].id == "rgen_1"
 
+
+def test_rgen_import_supports_impossible_difficulty():
+    records = [
+        {
+            "id": "rgen_impossible",
+            "instruction": "Move through a fully blocked workspace.",
+            "task_type": "impossible_task",
+            "difficulty": "impossible",
+            "scene": {
+                "robot": {
+                    "type": "arm_6dof",
+                    "workspace": {"x": [-0.5, 0.5], "y": [-0.5, 0.5], "z": [0, 0.8]},
+                    "gripper": True,
+                    "max_speed": 0.35,
+                },
+                "objects": [],
+                "zones": [],
+            },
+            "metadata": {"is_solvable": False, "failure_mode": "fully_blocked_workspace"},
+        }
+    ]
+    case = convert_rgen_records(records)[0]
+    assert case.difficulty == "impossible"
+    assert case.expected_decision == "reject"
+    assert case.metadata.failure_mode == "fully_blocked_workspace"

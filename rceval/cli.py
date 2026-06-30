@@ -13,6 +13,7 @@ from rceval.planners import PLANNERS
 from rceval.report import render_comparison, render_report
 from rceval.safety_judge import RuleBasedSafetyJudge
 from rceval.scoring import score_predictions
+from rceval.validators import validate_cases
 
 app = typer.Typer(help="RCEval robot instruction benchmark CLI.")
 console = Console()
@@ -28,12 +29,19 @@ def create_sample(out: Path = typer.Option(..., "--out", help="Output JSONL/YAML
 @app.command()
 def validate(path: Path) -> None:
     cases = read_cases(path)
+    errors = validate_cases(cases)
     table = Table(title="Benchmark Validation")
     table.add_column("File")
     table.add_column("Cases", justify="right")
+    table.add_column("Errors", justify="right")
     table.add_column("Status")
-    table.add_row(str(path), str(len(cases)), "valid")
+    table.add_row(str(path), str(len(cases)), str(len(errors)), "valid" if not errors else "invalid")
     console.print(table)
+    if errors:
+        console.print("[red]Validation errors[/red]")
+        for error in errors:
+            console.print(f"- {error}")
+        raise typer.Exit(code=1)
 
 
 @app.command()
@@ -120,4 +128,3 @@ def _print_score_table(report) -> None:
 
 if __name__ == "__main__":
     app()
-
